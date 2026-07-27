@@ -1,0 +1,22 @@
+{
+  "selected_model": "seasonal_naive_52",
+  "selection_metric": "rolling_backtest_mae",
+  "complete_weeks": 104,
+  "development_weeks": 88,
+  "final_test_weeks": 16,
+  "train_reference_end_index": 72,
+  "final_test_period_start": "2011-08-15T00:00:00",
+  "final_test_period_end": "2011-11-28T00:00:00",
+  "final_test_metrics": {
+    "mae": 47055.462499999994,
+    "rmse": 65722.1656044459,
+    "smape": 18.293058395584797
+  },
+  "forecast_horizon_weeks": 8,
+  "interval_method": "10th and 90th percentiles of rolling-backtest residuals",
+  "limitations": [
+    "Only 104 complete weekly observations are available.",
+    "The source covers one historical retailer and excludes external drivers.",
+    "The 80% range is empirical and not a guaranteed coverage interval."
+  ]
+}

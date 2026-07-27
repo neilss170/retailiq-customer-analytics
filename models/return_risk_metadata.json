@@ -1,0 +1,18 @@
+{
+  "selected_model": "gradient_boosting",
+  "selection_metric": "validation_pr_auc",
+  "campaign_threshold": 0.37000000000000016,
+  "validation_metrics": {
+    "accuracy": 0.704055619930475,
+    "precision": 0.5634233316352522,
+    "recall": 0.7247706422018348,
+    "f1": 0.6339925480080252,
+    "roc_auc": 0.784429045581147,
+    "pr_auc": 0.7146227349463085
+  },
+  "training_return_rate": 0.4964544923667306,
+  "smote_note": "Evaluated inside the training pipeline; training classes were already nearly balanced.",
+  "test_evaluated": true,
+  "test_metrics_path": "reports/generated/classification_final_test_metrics.json",
+  "test_predictions_path": "reports/generated/classification_final_test_predictions.parquet"
+}

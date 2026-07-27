@@ -1,0 +1,229 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "title": "RetailIQ: Customer & Revenue Intelligence",
+    "surface": "report",
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# RetailIQ: Customer & Revenue Intelligence"
+      },
+      {
+        "id": "summary",
+        "type": "markdown",
+        "body": "## Executive Summary\n\n**RetailIQ turns two years of transaction history into customer, revenue, and planning decisions.** The project combines validated retail data, leakage-safe customer return modelling, weekly revenue forecasting, and a seven-page decision dashboard.\n\n**The final customer model generalized credibly.** Gradient Boosting achieved 0.749 PR-AUC and 0.806 ROC-AUC on an untouched chronological test set of 14,341 customer snapshots.\n\n**Forecasting stayed deliberately simple.** A 52-week seasonal naïve benchmark outperformed more complex candidates in rolling backtests and recorded 18.3% sMAPE on the frozen 16-week holdout."
+      },
+      {
+        "id": "metrics",
+        "type": "metric-strip",
+        "cardIds": ["rows", "classification", "forecast"]
+      },
+      {
+        "id": "findings",
+        "type": "markdown",
+        "body": "## What the evidence shows\n\nThe workflow cleaned 1.07M source rows into 1.06M analysis-ready rows while preserving anonymous transactions for revenue analysis and excluding them from customer modelling. Customer features were created only from information available at each observation date, with chronological boundaries and a 90-day purge protecting against leakage.\n\nThe chart compares validation and final-test classification performance. Precision improved on the final period while recall declined, showing why campaign decisions should consider missed returners and unnecessary contacts rather than accuracy alone."
+      },
+      {
+        "id": "model_chart_block",
+        "type": "chart",
+        "chartId": "model_chart"
+      },
+      {
+        "id": "next_steps",
+        "type": "markdown",
+        "body": "## Recommended next steps\n\n1. Deploy the Streamlit dashboard as a public portfolio demonstration using the historical snapshot.\n2. Validate retention actions through a randomized campaign test; predicted return likelihood is not campaign lift.\n3. Add promotion, inventory, pricing, and margin data before using the revenue forecast for operational budgeting."
+      },
+      {
+        "id": "caveats",
+        "type": "markdown",
+        "body": "## Caveats and assumptions\n\nThe source covers one UK-based retailer from 2009–2011, 22.8% of source rows lack customer IDs, and currency is inferred as GBP from source context. Forecast uncertainty is empirical, not guaranteed. This is a historical analytical prototype, not a live production retail system."
+      }
+    ],
+    "cards": [
+      {
+        "id": "rows",
+        "description": "Rows retained after exact duplicate removal and conservative quality handling.",
+        "dataset": "project_metrics",
+        "metrics": [
+          {"label": "Analysis-ready rows", "field": "clean_rows", "format": "number"}
+        ],
+        "sourceId": "project_source"
+      },
+      {
+        "id": "classification",
+        "description": "Precision-recall area on the untouched chronological final test set.",
+        "dataset": "project_metrics",
+        "metrics": [
+          {"label": "Final customer-model PR-AUC", "field": "pr_auc", "format": "number"}
+        ],
+        "sourceId": "model_source"
+      },
+      {
+        "id": "forecast",
+        "description": "Symmetric mean absolute percentage error on the frozen 16-week holdout.",
+        "dataset": "project_metrics",
+        "metrics": [
+          {"label": "Forecast holdout sMAPE", "field": "forecast_smape", "format": "percent"}
+        ],
+        "sourceId": "forecast_source"
+      }
+    ],
+    "charts": [
+      {
+        "id": "model_chart",
+        "title": "Validation and final-test classification metrics",
+        "description": "Gradient Boosting scores at the frozen 0.37 threshold; ROC-AUC and PR-AUC are threshold-independent.",
+        "dataset": "model_metrics",
+        "type": "bar",
+        "encodings": {
+          "x": {"field": "metric", "type": "nominal"},
+          "y": {"field": "score", "type": "quantitative"},
+          "color": {"field": "evaluation", "type": "nominal"}
+        },
+        "options": {
+          "grouping": "grouped",
+          "legend": {"show": true}
+        },
+        "sourceId": "model_source"
+      }
+    ],
+    "sources": [
+      {
+        "id": "project_source",
+        "label": "UCI Online Retail II cleaned analytical tables",
+        "path": "data/processed/transactions.parquet",
+        "query": {
+          "language": "sql",
+          "engine": "duckdb",
+          "description": "Count analysis-ready transaction rows after conservative cleaning.",
+          "sql": "SELECT COUNT(*) AS clean_rows FROM read_parquet('data/processed/transactions.parquet')",
+          "tables_used": ["data/processed/transactions.parquet"],
+          "metric_definitions": [
+            "Analysis-ready rows = rows retained after exact source duplicate removal; anonymous transactions remain for revenue analysis."
+          ]
+        }
+      },
+      {
+        "id": "model_source",
+        "label": "Frozen return-risk validation and final-test evidence",
+        "path": "reports/generated/classification_final_test_metrics.json",
+        "query": {
+          "language": "sql",
+          "engine": "duckdb",
+          "description": "Read frozen validation and final-test classification metrics.",
+          "sql": "WITH test AS (SELECT metrics FROM read_json_auto('reports/generated/classification_final_test_metrics.json')), validation AS (SELECT validation_metrics FROM read_json_auto('models/return_risk_metadata.json')) SELECT * FROM test CROSS JOIN validation",
+          "tables_used": [
+            "reports/generated/classification_final_test_metrics.json",
+            "models/return_risk_metadata.json"
+          ],
+          "filters": [
+            "Frozen Gradient Boosting model",
+            "Campaign threshold = 0.37",
+            "Final test evaluated once"
+          ],
+          "metric_definitions": [
+            "PR-AUC = area under the precision-recall curve.",
+            "ROC-AUC = area under the receiver operating characteristic curve."
+          ]
+        }
+      },
+      {
+        "id": "forecast_source",
+        "label": "Frozen weekly revenue forecast evidence",
+        "path": "models/revenue_forecast_metadata.json",
+        "query": {
+          "language": "sql",
+          "engine": "duckdb",
+          "description": "Read the frozen weekly revenue forecast holdout metrics.",
+          "sql": "SELECT final_test_metrics.smape / 100.0 AS forecast_smape FROM read_json_auto('models/revenue_forecast_metadata.json')",
+          "tables_used": ["models/revenue_forecast_metadata.json"],
+          "filters": ["16-week frozen historical holdout"],
+          "metric_definitions": [
+            "sMAPE = mean absolute forecast error divided by the average magnitude of actual and forecast values, expressed as a percentage."
+          ]
+        }
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "status": "ready",
+    "generatedAt": "2026-07-24T17:30:00+05:30",
+    "datasets": {
+      "project_metrics": [
+        {"clean_rows": 1055238, "pr_auc": 0.7485088352, "forecast_smape": 0.18293}
+      ],
+      "model_metrics": [
+        {"metric": "Precision", "evaluation": "Validation", "score": 0.5634, "rows": 4315, "threshold": 0.37},
+        {"metric": "Precision", "evaluation": "Final test", "score": 0.6701, "rows": 14341, "threshold": 0.37},
+        {"metric": "Recall", "evaluation": "Validation", "score": 0.7248, "rows": 4315, "threshold": 0.37},
+        {"metric": "Recall", "evaluation": "Final test", "score": 0.6588, "rows": 14341, "threshold": 0.37},
+        {"metric": "F1", "evaluation": "Validation", "score": 0.6340, "rows": 4315, "threshold": 0.37},
+        {"metric": "F1", "evaluation": "Final test", "score": 0.6644, "rows": 14341, "threshold": 0.37},
+        {"metric": "ROC-AUC", "evaluation": "Validation", "score": 0.7844, "rows": 4315, "threshold": 0.37},
+        {"metric": "ROC-AUC", "evaluation": "Final test", "score": 0.8063, "rows": 14341, "threshold": 0.37},
+        {"metric": "PR-AUC", "evaluation": "Validation", "score": 0.7146, "rows": 4315, "threshold": 0.37},
+        {"metric": "PR-AUC", "evaluation": "Final test", "score": 0.7485, "rows": 14341, "threshold": 0.37}
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "project_source",
+      "label": "UCI Online Retail II cleaned analytical tables",
+      "path": "data/processed/transactions.parquet",
+      "query": {
+        "language": "sql",
+        "engine": "duckdb",
+        "description": "Count analysis-ready transaction rows after conservative cleaning.",
+        "sql": "SELECT COUNT(*) AS clean_rows FROM read_parquet('data/processed/transactions.parquet')",
+        "tables_used": ["data/processed/transactions.parquet"],
+        "metric_definitions": [
+          "Analysis-ready rows = rows retained after exact source duplicate removal; anonymous transactions remain for revenue analysis."
+        ]
+      }
+    },
+    {
+      "id": "model_source",
+      "label": "Frozen return-risk validation and final-test evidence",
+      "path": "reports/generated/classification_final_test_metrics.json",
+      "query": {
+        "language": "sql",
+        "engine": "duckdb",
+        "description": "Read frozen validation and final-test classification metrics.",
+        "sql": "WITH test AS (SELECT metrics FROM read_json_auto('reports/generated/classification_final_test_metrics.json')), validation AS (SELECT validation_metrics FROM read_json_auto('models/return_risk_metadata.json')) SELECT * FROM test CROSS JOIN validation",
+        "tables_used": [
+          "reports/generated/classification_final_test_metrics.json",
+          "models/return_risk_metadata.json"
+        ],
+        "filters": [
+          "Frozen Gradient Boosting model",
+          "Campaign threshold = 0.37",
+          "Final test evaluated once"
+        ],
+        "metric_definitions": [
+          "PR-AUC = area under the precision-recall curve.",
+          "ROC-AUC = area under the receiver operating characteristic curve."
+        ]
+      }
+    },
+    {
+      "id": "forecast_source",
+      "label": "Frozen weekly revenue forecast evidence",
+      "path": "models/revenue_forecast_metadata.json",
+      "query": {
+        "language": "sql",
+        "engine": "duckdb",
+        "description": "Read the frozen weekly revenue forecast holdout metrics.",
+        "sql": "SELECT final_test_metrics.smape / 100.0 AS forecast_smape FROM read_json_auto('models/revenue_forecast_metadata.json')",
+        "tables_used": ["models/revenue_forecast_metadata.json"],
+        "filters": ["16-week frozen historical holdout"],
+        "metric_definitions": [
+          "sMAPE = mean absolute forecast error divided by the average magnitude of actual and forecast values, expressed as a percentage."
+        ]
+      }
+    }
+  ]
+}
