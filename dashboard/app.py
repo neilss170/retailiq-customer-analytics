@@ -33,7 +33,7 @@ st.set_page_config(
     page_title="RetailIQ | Customer & Revenue Intelligence",
     page_icon="RI",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="auto",
 )
 
 COLORS = {
@@ -70,6 +70,7 @@ st.markdown(
     .kpi-label {{ color: {COLORS['muted']}; font-size: .78rem; font-weight: 650;
         text-transform: uppercase; letter-spacing: .06em; }}
     .kpi-value {{ color: {COLORS['text']}; font-size: 1.75rem; font-weight: 750; margin: .28rem 0; }}
+    .kpi-value-text {{ font-size: 1.15rem; line-height: 1.3; }}
     .kpi-delta {{ font-size: .78rem; color: {COLORS['muted']}; }}
     .insight {{ background: {COLORS['surface_2']}; border: 1px solid #2A3A57;
         border-left: 4px solid {COLORS['blue']}; border-radius: 12px; padding: 1rem 1.15rem; margin: .5rem 0 1.2rem; }}
@@ -146,13 +147,15 @@ def delta_label(delta: float | None) -> str:
     return f"{direction} {abs(delta):.1%} vs prior period"
 
 
-def kpi(label: str, value: str, delta: float | None) -> None:
+def kpi(label: str, value: str, delta: float | None = None, *, compare: bool = False, note: str = "") -> None:
+    footer = delta_label(delta) if compare else note
+    value_class = "kpi-value kpi-value-text" if len(value) > 14 else "kpi-value"
     st.markdown(
         f"""
         <div class="kpi-card">
           <div class="kpi-label">{label}</div>
-          <div class="kpi-value">{value}</div>
-          <div class="kpi-delta">{delta_label(delta)}</div>
+          <div class="{value_class}">{value}</div>
+          <div class="kpi-delta">{footer}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -200,7 +203,9 @@ def revenue_bars(frame: pd.DataFrame, label: str, total: float, title: str, colo
             orientation="h",
             marker_color=color,
             text=[f"{money(v)} · {s:.0%}" if s >= .01 else f"{money(v)} · {s:.1%}" for v, s in zip(data["net_revenue"], share)],
-            textposition="outside",
+            # Long bars carry their label inside so it cannot run off narrow screens.
+            textposition=np.where(data["net_revenue"] >= data["net_revenue"].max() * .6, "inside", "outside"),
+            insidetextanchor="end",
             cliponaxis=False,
             hovertemplate="%{y}: £%{x:,.0f}<extra></extra>",
         )
@@ -208,6 +213,51 @@ def revenue_bars(frame: pd.DataFrame, label: str, total: float, title: str, colo
     fig.update_layout(title=title)
     fig.update_xaxes(tickprefix="£", tickformat="~s", range=[0, data["net_revenue"].max() * 1.3])
     return fig
+
+
+COLUMN_LABELS = {
+    "stock_code": "Stock code",
+    "product_label": "Product",
+    "net_revenue": "Net revenue",
+    "gross_revenue": "Gross revenue",
+    "returned_value": "Returned value",
+    "return_value_rate": "Returned-value rate",
+    "invoices": "Invoices",
+    "segment": "Segment",
+    "customers": "Customers",
+    "median_recency": "Median recency",
+    "median_orders": "Median orders",
+    "total_value": "Total value",
+    "customer_id": "Customer ID",
+    "observation_date": "Snapshot date",
+    "estimated_return_likelihood": "Return likelihood",
+    "revenue_lifetime": "Lifetime revenue",
+    "recency_days": "Recency",
+    "priority": "Priority",
+    "invoice_week": "Week starting",
+    "forecast_net_revenue": "Expected net revenue",
+    "lower_80": "80% range low",
+    "upper_80": "80% range high",
+    "invoice_date": "Invoice date",
+    "invoice": "Invoice",
+    "description": "Description",
+    "quantity": "Quantity",
+    "unit_price": "Unit price",
+    "country": "Country",
+    "transaction_status": "Status",
+    "net_line_revenue": "Net line revenue",
+}
+METRIC_LABELS = {
+    "accuracy": "Accuracy",
+    "precision": "Precision",
+    "recall": "Recall",
+    "f1": "F1",
+    "roc_auc": "ROC-AUC",
+    "pr_auc": "PR-AUC",
+    "mae": "MAE (£)",
+    "rmse": "RMSE (£)",
+    "smape": "sMAPE (%)",
+}
 
 
 def page_header(title: str, subtitle: str, question: str) -> None:
@@ -314,11 +364,11 @@ if page == "Executive Summary":
     columns = st.columns(4)
     for column, card in zip(columns, cards[:4]):
         with column:
-            kpi(*card)
+            kpi(*card, compare=True)
     columns = st.columns(3)
     for column, card in zip(columns, cards[4:]):
         with column:
-            kpi(*card)
+            kpi(*card, compare=True)
 
     trend = flag_partial_months(
         monthly_revenue(filtered),
@@ -345,7 +395,7 @@ if page == "Executive Summary":
     left, right = st.columns([1.15, .85])
     with left:
         country = country_performance(filtered)
-        fig = revenue_bars(country.head(8), "country", country["net_revenue"].sum(), "Which countries contribute most to net revenue?", COLORS["blue"])
+        fig = revenue_bars(country.head(8), "country", country["net_revenue"].sum(), "Net revenue by country — top 8", COLORS["blue"])
         st.plotly_chart(style_chart(fig), width="stretch")
     with right:
         st.subheader("Decision snapshot")
@@ -468,6 +518,7 @@ elif page == "Revenue Drivers":
                 ),
                 width="stretch",
                 hide_index=True,
+                column_config=COLUMN_LABELS,
             )
     st.subheader("Cancellation watchlist")
     watch = (
@@ -481,6 +532,7 @@ elif page == "Revenue Drivers":
         ),
         width="stretch",
         hide_index=True,
+        column_config=COLUMN_LABELS,
     )
     st.caption("High cancellation value is a review signal, not evidence that the product caused returns.")
 
@@ -534,6 +586,7 @@ elif page == "Customer Intelligence":
         ),
         width="stretch",
         hide_index=True,
+        column_config=COLUMN_LABELS,
     )
     st.caption("Segments are descriptive summaries from historical transactions; they are not causal customer personas.")
     st.subheader("Customer 360 drill-down")
@@ -686,6 +739,7 @@ elif page == "Retention & Risk":
     st.dataframe(
         selected[["customer_id", "observation_date", "estimated_return_likelihood", "revenue_lifetime", "recency_days", "priority"]]
         .head(100)
+        .assign(observation_date=lambda frame: frame["observation_date"].dt.date)
         .style.format(
             {
                 "estimated_return_likelihood": "{:.1%}",
@@ -695,6 +749,7 @@ elif page == "Retention & Risk":
         ),
         width="stretch",
         hide_index=True,
+        column_config=COLUMN_LABELS,
     )
     st.caption("Historical evaluation snapshot only. Customer IDs are pseudonymous source identifiers; no contact details are present.")
 
@@ -743,7 +798,7 @@ elif page == "Revenue Outlook":
     with scenario_columns[0]:
         kpi("Baseline 8-week revenue", money(expected_total), None)
     with scenario_columns[1]:
-        kpi("Scenario 8-week revenue", money(scenario_total), scenario_change / 100)
+        kpi("Scenario 8-week revenue", money(scenario_total), note=f"{scenario_change:+d}% vs baseline forecast" if scenario_change else "Same as baseline")
     with scenario_columns[2]:
         kpi("Planning difference", money(scenario_total - expected_total), None)
     left, right = st.columns(2)
@@ -773,7 +828,7 @@ elif page == "Revenue Outlook":
         fig.update_yaxes(tickprefix="£", tickformat="~s", rangemode="tozero")
         st.plotly_chart(style_chart(fig), width="stretch")
     st.dataframe(
-        forecast.style.format(
+        forecast.assign(invoice_week=forecast["invoice_week"].dt.date).style.format(
             {
                 "forecast_net_revenue": "£{:,.0f}",
                 "lower_80": "£{:,.0f}",
@@ -782,6 +837,7 @@ elif page == "Revenue Outlook":
         ),
         width="stretch",
         hide_index=True,
+        column_config=COLUMN_LABELS,
     )
 
 elif page == "Data Explorer":
@@ -814,6 +870,7 @@ elif page == "Data Explorer":
         detail[columns].sort_values("invoice_date").head(500),
         width="stretch",
         hide_index=True,
+        column_config=COLUMN_LABELS,
     )
     st.download_button(
         "Download displayed rows",
@@ -845,13 +902,13 @@ else:
     with left:
         st.subheader("Classification evidence")
         test_meta = data["classification_test"]
-        classification = pd.Series(test_meta["metrics"], name="Final test").to_frame()
+        classification = pd.Series(test_meta["metrics"], name="Final test").rename(METRIC_LABELS).to_frame()
         st.dataframe(classification.style.format("{:.3f}"), width="stretch")
         st.caption("Gradient Boosting; frozen cutoff 0.37; 14,341 historical test snapshots.")
     with right:
         st.subheader("Forecast evidence")
         forecast_meta = data["forecast_meta"]
-        forecast_evidence = pd.Series(forecast_meta["final_test_metrics"], name="Final holdout").to_frame()
+        forecast_evidence = pd.Series(forecast_meta["final_test_metrics"], name="Final holdout").rename(METRIC_LABELS).to_frame()
         st.dataframe(forecast_evidence.style.format("{:,.2f}"), width="stretch")
         st.caption("Seasonal naïve 52-week method; 16-week frozen historical holdout.")
     st.subheader("Model stability and errors")
@@ -911,14 +968,13 @@ else:
         "Recall declined on the final test while precision improved. This is why the dashboard presents both missed returners and unnecessary contacts—not accuracy alone."
     )
     st.subheader("Tree explainability")
-    tree_left, tree_right = st.columns(2)
-    with tree_left:
+    with st.expander("Interpretable Decision Tree benchmark"):
         st.image(
             ROOT / "reports/figures/decision_tree_structure.png",
             caption="Interpretable Decision Tree benchmark (standardized feature thresholds).",
             width="stretch",
         )
-    with tree_right:
+    with st.expander("One illustrative Random Forest tree"):
         st.image(
             ROOT / "reports/figures/random_forest_example_tree.png",
             caption="One illustrative tree from the Random Forest ensemble—not the entire forest.",
