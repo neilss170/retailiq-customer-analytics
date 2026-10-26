@@ -33,11 +33,21 @@ def test_narrow_filters_do_not_break_pages() -> None:
         assert not app.exception, (page, [error.value for error in app.exception])
 
 
-@pytest.mark.parametrize("dates", [(date(2010, 3, 1),), ()])
-def test_half_chosen_or_cleared_date_range_still_renders(dates: tuple) -> None:
+def test_date_slider_changes_the_figures() -> None:
     app = AppTest.from_file(APP, default_timeout=120)
     app.run()
-    app.date_input[0].set_value(dates).run()
+    before = [block.value for block in app.markdown if "kpi-value" in block.value]
+    app.slider(key="date_range").set_value((date(2011, 1, 1), date(2011, 3, 31))).run()
+    after = [block.value for block in app.markdown if "kpi-value" in block.value]
+    assert not app.exception
+    assert after != before
+
+
+@pytest.mark.parametrize("dates", [(date(2010, 3, 1), date(2010, 3, 1)), (date(2011, 12, 9), date(2011, 12, 9))])
+def test_single_day_ranges_render(dates: tuple) -> None:
+    app = AppTest.from_file(APP, default_timeout=120)
+    app.run()
+    app.slider(key="date_range").set_value(dates).run()
     for page in PAGES:
         app.radio[0].set_value(page).run()
         assert not app.exception, (page, [error.value for error in app.exception])

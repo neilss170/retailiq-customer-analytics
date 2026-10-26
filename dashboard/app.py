@@ -309,11 +309,18 @@ with st.sidebar:
     st.divider()
     min_date = transactions["invoice_date"].min().date()
     max_date = transactions["invoice_date"].max().date()
-    date_range = st.date_input(
-        "Date range",
-        value=(min_date, max_date),
-        min_value=min_date,
-        max_value=max_date,
+    # A slider applies on release; the date box only applied once focus left it,
+    # so typed dates looked ignored.
+    start_date, end_date = map(
+        pd.Timestamp,
+        st.slider(
+            "Date range",
+            min_value=min_date,
+            max_value=max_date,
+            value=(min_date, max_date),
+            format="D MMM YYYY",
+            key="date_range",
+        ),
     )
     countries_available = sorted(transactions["country"].dropna().unique().tolist())
     countries = st.multiselect(
@@ -323,12 +330,6 @@ with st.sidebar:
     )
     st.caption(f"Source coverage: {min_date:%d %b %Y}–{max_date:%d %b %Y}")
     st.caption("Historical snapshot — not a live retail feed")
-
-# The picker returns a one-item tuple while only the start date is chosen and
-# an empty one when cleared; run to the end of the data until both are set.
-selected_dates = date_range if isinstance(date_range, (tuple, list)) else (date_range,)
-start_date = pd.Timestamp(selected_dates[0] if selected_dates else min_date)
-end_date = pd.Timestamp(selected_dates[1] if len(selected_dates) > 1 else max_date)
 
 filtered = filter_transactions(transactions, start_date, end_date, countries)
 period_days = max(1, (end_date - start_date).days + 1)
