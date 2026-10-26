@@ -1,5 +1,7 @@
 # RetailIQ
 
+[![quality](https://github.com/neilss170/retailiq-customer-analytics/actions/workflows/quality.yml/badge.svg)](https://github.com/neilss170/retailiq-customer-analytics/actions/workflows/quality.yml)
+
 RetailIQ is an end-to-end retail analytics project built from the
 [UCI Online Retail II dataset](https://archive.ics.uci.edu/dataset/502/online+retail+ii).
 It started with a practical question: how much useful customer and revenue
@@ -94,27 +96,28 @@ and saved binary pipelines are excluded.
 
 ## Reproduce the analysis
 
-Download the Online Retail II workbook and place it at:
+One command rebuilds every table, model, metric and executed notebook from the
+raw UCI workbook:
 
-```text
-data/raw/source/online_retail_II.xlsx
+```powershell
+.\.venv\Scripts\python.exe scripts\reproduce.py
 ```
 
-Run the notebooks in numerical order:
+It downloads the workbook to `data/raw/source/` if it is not already there,
+checks its SHA-256 against the file the published results came from, then runs
+the pipeline in dependency order. The notebooks read tables written by the
+command-line steps, so they cannot be run on their own from a fresh clone:
 
-```text
-01_data_quality_and_cleaning.ipynb
-02_business_eda_and_cohorts.ipynb
-03_customer_segmentation.ipynb
-04_return_risk_feature_engineering.ipynb
-05_return_risk_modeling.ipynb
-06_final_classification_test.ipynb
-07_revenue_forecasting.ipynb
-```
+1. `src.cleaning`, `src.analytics`, `src.return_risk_features` and
+   `src.return_risk_modeling` (hyperparameter search) write the processed
+   tables and search evidence.
+2. Notebooks `01`–`07` run in order and are saved in place. Notebook 05
+   selects the model, notebook 06 scores the sealed test period once and
+   notebook 07 runs the forecast backtest and holdout.
 
-Notebook 06 contains the guarded final classification test. Re-running it
-returns the saved evaluation evidence when the model metadata already records
-that the test was evaluated.
+The full run takes about 11 minutes on a laptop, most of it the search. A run
+from a clean clone reproduces the committed processed data, predictions and
+metrics exactly.
 
 ## Project structure
 
@@ -136,8 +139,16 @@ tests/          Unit and boundary tests
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-GitHub Actions runs the same compilation and test checks on pushes and pull
-requests.
+The tests include a headless run of all seven dashboard pages, with and
+without narrow filters. GitHub Actions runs the same compilation and test
+checks on pushes and pull requests.
+
+## Deploy
+
+The dashboard deploys to Streamlit Community Cloud with `dashboard/app.py` as
+the entry point. `dashboard/requirements.txt` holds only its runtime
+dependencies, which Community Cloud reads ahead of the root file, and
+`.streamlit/config.toml` sets the dark theme.
 
 ## Limitations
 
