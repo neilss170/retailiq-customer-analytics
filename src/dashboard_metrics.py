@@ -98,6 +98,18 @@ def monthly_revenue(transactions: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def flag_partial_months(
+    trend: pd.DataFrame, coverage_start: pd.Timestamp, coverage_end: pd.Timestamp
+) -> pd.DataFrame:
+    """Mark months that the observed date range covers only in part."""
+    data = trend.copy()
+    month_end = data["month"] + pd.offsets.MonthEnd(0)
+    data["partial"] = data["month"].lt(coverage_start.normalize()) | month_end.gt(
+        coverage_end.normalize()
+    )
+    return data
+
+
 def country_performance(transactions: pd.DataFrame) -> pd.DataFrame:
     return (
         transactions.groupby("country")
@@ -143,7 +155,18 @@ def cohort_retention(transactions: pd.DataFrame, months: int = 12) -> pd.DataFra
     activity = sales[["customer_id", "order_month"]].drop_duplicates().join(first, on="customer_id")
     activity["period"] = activity["order_month"].astype(int) - activity["cohort_month"].astype(int)
     counts = activity.groupby(["cohort_month", "period"])["customer_id"].nunique().unstack(fill_value=0)
+    counts = counts.reindex(columns=range(int(counts.columns.max()) + 1), fill_value=0)
     retention = counts.div(counts[0], axis=0).iloc[:, : months + 1]
+    # Months after the last observed month have not happened yet; they are
+    # unknown, not zero retention.
+    observable = sales["order_month"].max().ordinal - retention.index.map(lambda m: m.ordinal)
+    retention = retention.where(
+        pd.DataFrame(
+            np.less_equal.outer(np.asarray(retention.columns), np.asarray(observable)).T,
+            index=retention.index,
+            columns=retention.columns,
+        )
+    )
     retention.index = retention.index.astype(str)
     return retention
 

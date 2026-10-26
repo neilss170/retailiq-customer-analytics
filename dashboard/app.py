@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +23,7 @@ from src.dashboard_metrics import (  # noqa: E402
     executive_metrics,
     executive_narrative,
     filter_transactions,
+    flag_partial_months,
     metric_deltas,
     monthly_revenue,
     product_performance,
@@ -54,7 +56,7 @@ st.markdown(
     [data-testid="stSidebar"] {{ background: #101827; border-right: 1px solid #22304A; }}
     [data-testid="stHeader"] {{ background: rgba(11,18,32,.88); }}
     h1, h2, h3 {{ letter-spacing: -0.025em; }}
-    .block-container {{ max-width: 1500px; padding-top: 1.6rem; padding-bottom: 4rem; }}
+    .block-container {{ max-width: 1500px; padding-top: 4.2rem; padding-bottom: 4rem; }}
     .brand {{ font-size: 1.45rem; font-weight: 800; color: {COLORS['text']}; }}
     .brand-sub {{ color: {COLORS['muted']}; font-size: .82rem; margin-bottom: 1.4rem; }}
     .eyebrow {{ color: {COLORS['blue_light']}; font-size: .76rem; font-weight: 700;
@@ -187,6 +189,27 @@ def style_chart(fig: go.Figure, height: int = 420) -> go.Figure:
     return fig
 
 
+def revenue_bars(frame: pd.DataFrame, label: str, total: float, title: str, color: str) -> go.Figure:
+    """Horizontal net-revenue bars labelled with value and share of the total."""
+    data = frame.sort_values("net_revenue")
+    share = data["net_revenue"] / total if total else np.nan
+    fig = go.Figure(
+        go.Bar(
+            x=data["net_revenue"],
+            y=data[label],
+            orientation="h",
+            marker_color=color,
+            text=[f"{money(v)} · {s:.0%}" if s >= .01 else f"{money(v)} · {s:.1%}" for v, s in zip(data["net_revenue"], share)],
+            textposition="outside",
+            cliponaxis=False,
+            hovertemplate="%{y}: £%{x:,.0f}<extra></extra>",
+        )
+    )
+    fig.update_layout(title=title)
+    fig.update_xaxes(tickprefix="£", tickformat="~s", range=[0, data["net_revenue"].max() * 1.3])
+    return fig
+
+
 def page_header(title: str, subtitle: str, question: str) -> None:
     st.markdown(f'<div class="eyebrow">{question}</div>', unsafe_allow_html=True)
     st.title(title)
@@ -297,18 +320,32 @@ if page == "Executive Summary":
         with column:
             kpi(*card)
 
-    trend = monthly_revenue(filtered)
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=trend["month"], y=trend["net_revenue"], name="Net revenue", mode="lines+markers", line={"color": COLORS["blue"], "width": 3}))
-    fig.add_trace(go.Bar(x=trend["month"], y=-trend["returned_value"], name="Returned value", marker_color=COLORS["gold"], opacity=.65))
-    fig.update_layout(title="Monthly net revenue and returned value")
-    st.plotly_chart(style_chart(fig), width="stretch")
+    trend = flag_partial_months(
+        monthly_revenue(filtered),
+        max(start_date, transactions["invoice_date"].min()),
+        min(end_date + pd.Timedelta(days=1) - pd.Timedelta(seconds=1), transactions["invoice_date"].max()),
+    )
+    complete = trend.loc[~trend["partial"]]
+    partial = trend.loc[trend["partial"]]
+    fig = make_subplots(
+        rows=2, cols=1, shared_xaxes=True, row_heights=[.72, .28], vertical_spacing=.06
+    )
+    fig.add_trace(go.Scatter(x=complete["month"], y=complete["net_revenue"], name="Net revenue", mode="lines+markers", line={"color": COLORS["blue"], "width": 3}, hovertemplate="%{x|%b %Y}: £%{y:,.0f}<extra></extra>"), row=1, col=1)
+    if len(partial):
+        fig.add_trace(go.Scatter(x=partial["month"], y=partial["net_revenue"], name="Partial month (not comparable)", mode="markers", marker={"color": COLORS["background"], "size": 9, "line": {"color": COLORS["blue_light"], "width": 2}}, hovertemplate="%{x|%b %Y} (partial): £%{y:,.0f}<extra></extra>"), row=1, col=1)
+    fig.add_trace(go.Bar(x=trend["month"], y=trend["returned_value"], name="Returned value", marker_color=np.where(trend["partial"], COLORS["muted"], COLORS["gold"]), hovertemplate="%{x|%b %Y}: £%{y:,.0f} returned<extra></extra>"), row=2, col=1)
+    fig.update_layout(title="Monthly net revenue and returned value", legend={"orientation": "h", "y": -0.12})
+    fig.update_yaxes(tickprefix="£", tickformat="~s", rangemode="tozero")
+    fig.update_yaxes(title_text="Net revenue", row=1, col=1)
+    fig.update_yaxes(title_text="Returned", row=2, col=1)
+    st.plotly_chart(style_chart(fig, 480), width="stretch")
+    if len(partial):
+        st.caption("Hollow points are months the selected range covers only in part (the source ends on 9 Dec 2011), so their totals are not comparable with full months.")
 
     left, right = st.columns([1.15, .85])
     with left:
-        country = country_performance(filtered).head(8).sort_values("net_revenue")
-        fig = px.bar(country, x="net_revenue", y="country", orientation="h", title="Which countries contribute most to net revenue?")
-        fig.update_traces(marker_color=COLORS["blue"])
+        country = country_performance(filtered)
+        fig = revenue_bars(country.head(8), "country", country["net_revenue"].sum(), "Which countries contribute most to net revenue?", COLORS["blue"])
         st.plotly_chart(style_chart(fig), width="stretch")
     with right:
         st.subheader("Decision snapshot")
@@ -361,19 +398,24 @@ elif page == "Revenue Drivers":
     )
     left, right = st.columns(2)
     with left:
-        top_country = country.head(12).sort_values("net_revenue")
-        fig = px.bar(top_country, x="net_revenue", y="country", orientation="h", title="Net revenue by country — top 12")
-        fig.update_traces(marker_color=COLORS["blue"])
+        domestic = country["country"].eq("United Kingdom")
+        exclude_uk = domestic.any() and len(country) > 1 and st.toggle(
+            "Compare markets outside the UK",
+            value=True,
+            help="The UK holds most revenue, which flattens every other bar.",
+        )
+        shown = country.loc[~domestic] if exclude_uk else country
+        title = "Net revenue by country outside the UK — top 12" if exclude_uk else "Net revenue by country — top 12"
+        fig = revenue_bars(shown.head(12), "country", country["net_revenue"].sum(), title, COLORS["blue"])
         st.plotly_chart(style_chart(fig), width="stretch")
     with right:
-        top_product = product.head(12).sort_values("net_revenue")
-        fig = px.bar(top_product, x="net_revenue", y="product_label", orientation="h", title="Net revenue by product — top 12")
-        fig.update_traces(marker_color=COLORS["gold"])
+        fig = revenue_bars(product.head(12), "product_label", product["net_revenue"].sum(), "Net revenue by product — top 12", COLORS["gold"])
         st.plotly_chart(style_chart(fig), width="stretch")
     st.subheader("Product portfolio")
     st.caption(
-        "Each point is a product. The upper-right area combines material revenue with elevated returned-value exposure."
+        "Each point is a product sold on at least five invoices with positive net revenue; size shows invoice count. The upper-right area combines material revenue with elevated returned-value exposure."
     )
+    portfolio = portfolio.loc[portfolio["net_revenue"].gt(0)]
     fig = px.scatter(
         portfolio,
         x="net_revenue",
@@ -382,10 +424,15 @@ elif page == "Revenue Drivers":
         color="revenue_band",
         hover_name="product_label",
         hover_data={"stock_code": True, "gross_revenue": ":,.0f", "invoices": True},
-        color_discrete_map={"Higher revenue": COLORS["gold"], "Lower revenue": COLORS["blue"]},
+        color_discrete_map={"Higher revenue": COLORS["gold"], "Lower revenue": COLORS["blue_light"]},
         title="Product revenue and returned-value exposure",
-        labels={"net_revenue": "Net revenue (GBP)", "return_value_rate": "Returned-value rate"},
+        labels={"net_revenue": "Net revenue (GBP, log scale)", "return_value_rate": "Returned-value rate", "revenue_band": ""},
+        log_x=True,
+        opacity=.65,
+        size_max=28,
     )
+    fig.update_traces(marker={"sizemin": 3, "line": {"width": 0}})
+    fig.update_xaxes(tickprefix="£", tickformat="~s", dtick=1)
     fig.update_yaxes(tickformat=".0%")
     st.plotly_chart(style_chart(fig, 500), width="stretch")
     search_term = st.text_input(
@@ -460,12 +507,11 @@ elif page == "Customer Intelligence":
         )
     left, right = st.columns(2)
     with left:
-        fig = px.bar(segment_summary.sort_values("total_value"), x="total_value", y="segment", orientation="h", title="Historical customer value by segment")
-        fig.update_traces(marker_color=COLORS["blue"])
+        fig = revenue_bars(segment_summary.rename(columns={"total_value": "net_revenue"}), "segment", segment_summary["total_value"].sum(), "Historical customer value by segment", COLORS["blue"])
         st.plotly_chart(style_chart(fig), width="stretch")
     with right:
         fig = px.scatter(
-            segment_view,
+            segment_view.loc[segment_view["monetary"].gt(0)],
             x="recency_days",
             y="monetary",
             color="segment",
@@ -473,8 +519,14 @@ elif page == "Customer Intelligence":
             hover_data=["customer_id"],
             title="Customer recency and historical value",
             log_y=True,
-            color_discrete_sequence=[COLORS["blue"], COLORS["gold"], "#8B5CF6"],
+            opacity=.6,
+            size_max=22,
+            color_discrete_sequence=[COLORS["blue_light"], COLORS["gold"], "#A78BFA"],
+            labels={"recency_days": "Days since last purchase", "monetary": "Historical value (GBP, log scale)", "frequency": "Orders", "segment": ""},
         )
+        fig.update_traces(marker={"sizemin": 2.5, "line": {"width": 0}})
+        fig.update_yaxes(tickprefix="£", tickformat="~s", dtick=1)
+        fig.update_layout(legend={"orientation": "h", "y": -0.25})
         st.plotly_chart(style_chart(fig), width="stretch")
     st.dataframe(
         segment_summary.style.format(
@@ -558,14 +610,19 @@ elif page == "Retention & Risk":
     else:
         fig = px.imshow(
             retention,
-            text_auto=".0%",
             aspect="auto",
             color_continuous_scale=["#111827", "#1D4ED8", "#93C5FD"],
             title="Monthly cohort retention",
             labels={"x": "Months since first purchase", "y": "Acquisition cohort", "color": "Retention"},
         )
+        fig.update_traces(
+            text=retention.map(lambda value: "" if pd.isna(value) else f"{value:.0%}").to_numpy(),
+            texttemplate="%{text}",
+            hovertemplate="Cohort %{y}, month %{x}: %{z:.1%}<extra></extra>",
+        )
+        fig.update_coloraxes(colorbar_tickformat=".0%")
         st.plotly_chart(style_chart(fig, 560), width="stretch")
-        st.caption("Example: month 1 shows the share of an acquisition cohort that purchased again one month later. Recent cohorts have shorter observable histories.")
+        st.caption("Blank cells are months that had not happened yet when the data ends. Example: month 1 shows the share of an acquisition cohort that purchased again one month later. Recent cohorts have shorter observable histories.")
 
     scored: pd.DataFrame = data["test_predictions"]  # type: ignore[assignment]
     scored = scored.copy()
@@ -694,12 +751,13 @@ elif page == "Revenue Outlook":
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=forecast_test["invoice_week"], y=forecast_test["net_revenue"], name="Actual", line={"color": COLORS["blue"]}, mode="lines+markers"))
         fig.add_trace(go.Scatter(x=forecast_test["invoice_week"], y=forecast_test["predicted_net_revenue"], name="Forecast", line={"color": COLORS["gold"]}, mode="lines+markers"))
-        fig.update_layout(title="Frozen 16-week holdout")
+        fig.update_layout(title="Frozen 16-week holdout", legend={"orientation": "h", "y": -0.15})
+        fig.update_yaxes(tickprefix="£", tickformat="~s")
         st.plotly_chart(style_chart(fig), width="stretch")
     with right:
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=forecast["invoice_week"], y=forecast["upper_80"], line={"width": 0}, showlegend=False, hoverinfo="skip"))
-        fig.add_trace(go.Scatter(x=forecast["invoice_week"], y=forecast["lower_80"], fill="tonexty", fillcolor="rgba(59,130,246,.25)", line={"width": 0}, name="Empirical 80% range"))
+        fig.add_trace(go.Scatter(x=forecast["invoice_week"], y=forecast["upper_80"], mode="lines", line={"width": 0}, showlegend=False, hoverinfo="skip"))
+        fig.add_trace(go.Scatter(x=forecast["invoice_week"], y=forecast["lower_80"], mode="lines", fill="tonexty", fillcolor="rgba(59,130,246,.25)", line={"width": 0}, name="Empirical 80% range"))
         fig.add_trace(go.Scatter(x=forecast["invoice_week"], y=forecast["forecast_net_revenue"], mode="lines+markers", name="Expected net revenue", line={"color": COLORS["blue"], "width": 3}))
         if scenario_change:
             fig.add_trace(
@@ -711,7 +769,8 @@ elif page == "Revenue Outlook":
                     line={"color": COLORS["gold"], "width": 2, "dash": "dash"},
                 )
             )
-        fig.update_layout(title="Eight-week revenue outlook")
+        fig.update_layout(title="Eight-week revenue outlook", legend={"orientation": "h", "y": -0.15})
+        fig.update_yaxes(tickprefix="£", tickformat="~s", rangemode="tozero")
         st.plotly_chart(style_chart(fig), width="stretch")
     st.dataframe(
         forecast.style.format(
@@ -846,6 +905,7 @@ else:
             color_continuous_scale=["#111827", COLORS["blue"]],
             title="Final-test confusion matrix",
         )
+        fig.update_layout(coloraxis_showscale=False)
         st.plotly_chart(style_chart(fig, 390), width="stretch")
     st.caption(
         "Recall declined on the final test while precision improved. This is why the dashboard presents both missed returners and unnecessary contacts—not accuracy alone."
