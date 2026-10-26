@@ -324,10 +324,11 @@ with st.sidebar:
     st.caption(f"Source coverage: {min_date:%d %b %Y}–{max_date:%d %b %Y}")
     st.caption("Historical snapshot — not a live retail feed")
 
-if isinstance(date_range, tuple) and len(date_range) == 2:
-    start_date, end_date = map(pd.Timestamp, date_range)
-else:
-    start_date = end_date = pd.Timestamp(date_range)
+# The picker returns a one-item tuple while only the start date is chosen and
+# an empty one when cleared; run to the end of the data until both are set.
+selected_dates = date_range if isinstance(date_range, (tuple, list)) else (date_range,)
+start_date = pd.Timestamp(selected_dates[0] if selected_dates else min_date)
+end_date = pd.Timestamp(selected_dates[1] if len(selected_dates) > 1 else max_date)
 
 filtered = filter_transactions(transactions, start_date, end_date, countries)
 period_days = max(1, (end_date - start_date).days + 1)
